@@ -333,13 +333,99 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
   }
 
   /**
-   * PROPUESTA PROVISIONAL: Envío de mensaje en la conversación de contextualización.
-   * Pendiente de confirmar: el Flujo 1 usa un Chat Trigger sin URL REST definida aún.
+   * Flujo 1: Envío de mensaje al agente por Webhook.
+   * Si VITE_WEBHOOK_CHAT_URL está definida, se llama directo al Webhook del agente;
+   * si no, cae al endpoint provisional POST /chat/mensaje del backend.
+   *
+   * Body enviado:    { mensaje, emprendimiento_id, session_id }
+   * Respuesta (acepta varias formas, según cómo responda el nodo "Respond to Webhook"):
+   *   { respuesta | output | text | message | contenido: string }  o  { respuestaAsistente: MensajeChat }
    */
   async enviarMensajeChat(mensaje: string, emprendimientoId: string): Promise<RespuestaServicio<{ respuestaAsistente: MensajeChat }>> {
-    return this.request<{ respuestaAsistente: MensajeChat }>('/chat/mensaje', {
-      method: 'POST',
-      body: JSON.stringify({ mensaje, emprendimiento_id: emprendimientoId }),
-    });
+    const webhookUrl = CONFIG.WEBHOOK_CHAT_URL;
+    if (!webhookUrl) {
+      return this.request<{ respuestaAsistente: MensajeChat }>('/chat/mensaje', {
+        method: 'POST',
+        body: JSON.stringify({ mensaje, emprendimiento_id: emprendimientoId }),
+      });
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CONFIG.WEBHOOK_TIMEOUT_MS);
+    try {
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mensaje,
+          emprendimiento_id: emprendimientoId,
+          session_id: emprendimientoId,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        return {
+          exito: false,
+          error: {
+            codigo: response.status.toString(),
+            mensaje: `El agente no pudo responder (${response.status}). Intentá de nuevo.`,
+          },
+        };
+      }
+
+      const data = await response.json().catch(() => null);
+      const respuesta = extraerRespuestaAgente(data);
+      if (!respuesta) {
+        return {
+          exito: false,
+          error: {
+            codigo: 'RESPUESTA_INVALIDA',
+            mensaje: 'El agente respondió en un formato que no se pudo leer.',
+            detalle: JSON.stringify(data),
+          },
+        };
+      }
+      return { exito: true, datos: { respuestaAsistente: respuesta } };
+    } catch (err: any) {
+      const timeout = err?.name === 'AbortError';
+      return {
+        exito: false,
+        error: {
+          codigo: timeout ? 'TIMEOUT' : 'NETWORK_ERROR',
+          mensaje: timeout
+            ? 'El agente tardó demasiado en responder. Intentá de nuevo.'
+            : 'No se pudo conectar con el agente. Verificá tu conexión.',
+          detalle: err?.message,
+        },
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
+}
+
+/**
+ * Normaliza la respuesta del Webhook del agente a un MensajeChat.
+ */
+function extraerRespuestaAgente(data: unknown): MensajeChat | null {
+  // n8n / flujos suelen devolver un arreglo con un solo item
+  const raiz: any = Array.isArray(data) ? data[0] : data;
+  if (!raiz || typeof raiz !== 'object') return null;
+
+  if (raiz.respuestaAsistente && typeof raiz.respuestaAsistente.contenido === 'string') {
+    return raiz.respuestaAsistente as MensajeChat;
+  }
+
+  const texto = [raiz.respuesta, raiz.output, raiz.text, raiz.message, raiz.contenido].find(
+    (v) => typeof v === 'string' && v.trim()
+  );
+  if (!texto) return null;
+
+  return {
+    id: `msg-${Date.now()}`,
+    emisor: 'asistente',
+    contenido: texto,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  };
 }
