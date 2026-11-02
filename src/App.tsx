@@ -6,7 +6,6 @@ import { ChatPanel } from './components/Chat/ChatPanel';
 import { TarjetaEtiquetas } from './components/PanelDiagnostico/TarjetaEtiquetas';
 import { TarjetaRanking } from './components/PanelDiagnostico/TarjetaRanking';
 import { TarjetaSugerencia } from './components/PanelDiagnostico/TarjetaSugerencia';
-import { PanelControlDemo } from './components/Demo/PanelControlDemo';
 import { ToastNotification } from './components/Common/ToastNotification';
 import { SkeletonCard } from './components/Common/SkeletonCard';
 
@@ -19,7 +18,6 @@ const VistaEmprendedorContenido: React.FC = () => {
   });
 
   useEffect(() => {
-    // Sincronizar clase dark en el elemento raíz para soporte completo de tema oscuro
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
       localStorage.setItem('theme', 'dark');
@@ -54,20 +52,15 @@ const VistaEmprendedorContenido: React.FC = () => {
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-            {/* Columna Izquierda: Chat (5 columnas en desktop, uniforme con la altura total del panel derecho) */}
+            {/* Columna Izquierda: Chat (5 columnas en desktop) */}
             <div className="lg:col-span-5 h-full flex flex-col">
               <ChatPanel />
             </div>
 
-            {/* Columna Derecha: Panel de Diagnóstico (7 columnas, altura natural con gap de 24px) */}
+            {/* Columna Derecha: Panel de Diagnóstico (7 columnas) */}
             <div className="lg:col-span-7 space-y-6 flex flex-col">
-              {/* Tarjeta 1: Categorización y etiquetas */}
               <TarjetaEtiquetas />
-
-              {/* Tarjeta 2: Ranking de dolores (tarjeta principal) */}
               <TarjetaRanking />
-
-              {/* Tarjeta 3: Sugerencia de la IA */}
               <TarjetaSugerencia />
             </div>
           </div>
@@ -80,9 +73,6 @@ const VistaEmprendedorContenido: React.FC = () => {
         onCerrar={limpiarError}
         onReintentar={reintentar}
       />
-
-      {/* Panel de control para modo de demostración y pruebas */}
-      <PanelControlDemo />
     </div>
   );
 };

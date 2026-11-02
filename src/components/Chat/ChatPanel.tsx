@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useEmprendimiento } from '../../context/EmprendimientoContext';
 import { MensajeBurbuja } from './MensajeBurbuja';
 import { MessageSquare, Send, Loader2 } from 'lucide-react';
+import { CONFIG } from '../../config/constants';
 
 export const ChatPanel: React.FC = () => {
   const {
@@ -57,9 +58,16 @@ export const ChatPanel: React.FC = () => {
             Chat con el asistente
           </h2>
         </div>
-        <span className="px-2.5 py-0.5 rounded-full text-[12px] font-medium bg-slate-100 dark:bg-slate-800 text-[#475569] dark:text-slate-300">
-          Demo
-        </span>
+        {CONFIG.WEBHOOK_CHAT_ACTIVO ? (
+          <span className="px-2.5 py-0.5 rounded-full text-[12px] font-medium bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            En vivo
+          </span>
+        ) : (
+          <span className="px-2.5 py-0.5 rounded-full text-[12px] font-medium bg-slate-100 dark:bg-slate-800 text-[#475569] dark:text-slate-300">
+            Demo
+          </span>
+        )}
       </div>
 
       {/* Historial con scroll interno anclado arriba */}

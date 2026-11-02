@@ -3,14 +3,12 @@
  */
 
 export const CONFIG = {
-  // En modo demo usa mocks interactivos en memoria
-  IS_DEMO_DEFAULT: import.meta.env.VITE_DEMO_MODE !== 'false',
   API_BASE_URL: import.meta.env.VITE_API_URL || 'https://api.plataforma.local/v1',
   // URL del Webhook del agente (Flujo 1 · chat de contextualización). Si está vacía se usa API_BASE_URL + /chat/mensaje
   WEBHOOK_CHAT_URL: import.meta.env.VITE_WEBHOOK_CHAT_URL || '',
+  // true cuando hay una URL de webhook configurada
+  WEBHOOK_CHAT_ACTIVO: !!(import.meta.env.VITE_WEBHOOK_CHAT_URL && import.meta.env.VITE_WEBHOOK_CHAT_URL.trim()),
   WEBHOOK_TIMEOUT_MS: 60000,
-  DEMO_LATENCY_MS: 600,
-  SLOW_LATENCY_MS: 2400,
 };
 
 export const ETAPAS_STEPPER = [

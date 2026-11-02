@@ -1,24 +1,13 @@
-import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type {
   EstadoEmprendimiento,
   EstadoNotificacionMentor,
   EtapaEmprendimiento,
   MensajeChat,
-  NotaMentor,
 } from '../types';
-import type { IEmprendimientoService } from '../services/api.types';
-import {
-  type DemoSimulationConfig,
-  HttpEmprendimientoService,
-  MockEmprendimientoService,
-} from '../services/emprendimientoService';
-import {
-  INITIAL_CHAT_MESSAGES,
-  INITIAL_ESTADO_EMPRENDIMIENTO,
-  INITIAL_NOTA_MENTOR,
-  NOTA_MENTOR_CON_AJUSTE,
-} from '../mocks/initialData';
-import { CONFIG } from '../config/constants';
+import { HttpEmprendimientoService } from '../services/emprendimientoService';
+
+const service = new HttpEmprendimientoService();
 
 interface EmprendimientoContextValue {
   estado: EstadoEmprendimiento | null;
@@ -28,10 +17,6 @@ interface EmprendimientoContextValue {
   errorGlobal: { codigo: string; mensaje: string } | null;
   limpiarError: () => void;
   reintentar: () => Promise<void>;
-  isDemoMode: boolean;
-  setIsDemoMode: (val: boolean) => void;
-  simConfig: DemoSimulationConfig;
-  actualizarSimConfig: (config: Partial<DemoSimulationConfig>) => void;
 
   // Acciones de negocio
   enviarMensaje: (texto: string) => Promise<boolean>;
@@ -41,44 +26,28 @@ interface EmprendimientoContextValue {
   eliminarEtiqueta: (etiqueta: string) => Promise<boolean>;
   editarDolor: (dolorId: string, nuevoNombre: string, etiquetas: string[], motivo?: string) => Promise<boolean>;
   decidirSugerencia: (sugerenciaId: string, decision: 'aceptar' | 'descartar') => Promise<boolean>;
-
-  // Herramientas del Panel de Control Demo
-  forzarEtapa: (etapa: EtapaEmprendimiento) => void;
-  forzarAvisoMentor: (estado: EstadoNotificacionMentor) => void;
-  forzarVarianteMentor: (variante: 'sin_nota' | 'nota_normal' | 'con_ajuste_score') => void;
-  resetDemoData: () => void;
 }
 
 const EmprendimientoContext = createContext<EmprendimientoContextValue | null>(null);
 
-const mockServiceInstance = new MockEmprendimientoService();
-const httpServiceInstance = new HttpEmprendimientoService();
-
 export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [isDemoMode, setIsDemoMode] = useState<boolean>(CONFIG.IS_DEMO_DEFAULT);
   const [estado, setEstado] = useState<EstadoEmprendimiento | null>(null);
-  const [mensajesChat, setMensajesChat] = useState<MensajeChat[]>(INITIAL_CHAT_MESSAGES);
+  const [mensajesChat, setMensajesChat] = useState<MensajeChat[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
   const [esperandoRespuestaChat, setEsperandoRespuestaChat] = useState<boolean>(false);
   const [errorGlobal, setErrorGlobal] = useState<{ codigo: string; mensaje: string } | null>(null);
-  const [simConfig, setSimConfigState] = useState<DemoSimulationConfig>(mockServiceInstance.getSimConfig());
-
-  // Proveedor de servicio activo según isDemoMode
-  const activeService: IEmprendimientoService = useMemo(() => {
-    return isDemoMode ? mockServiceInstance : httpServiceInstance;
-  }, [isDemoMode]);
 
   const cargarEstadoInicial = useCallback(async () => {
     setCargando(true);
     setErrorGlobal(null);
     try {
-      const resp = await activeService.obtenerEstado('emp-101');
+      const resp = await service.obtenerEstado('emp-101');
       if (resp.exito && resp.datos) {
         setEstado(resp.datos);
       } else if (resp.error) {
         setErrorGlobal(resp.error);
       }
-    } catch (e: any) {
+    } catch {
       setErrorGlobal({
         codigo: 'UNKNOWN_ERROR',
         mensaje: 'Ocurrió un error inesperado al cargar el estado.',
@@ -86,42 +55,32 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
     } finally {
       setCargando(false);
     }
-  }, [activeService]);
+  }, []);
 
   useEffect(() => {
     cargarEstadoInicial();
   }, [cargarEstadoInicial]);
 
-  // Hook de sincronización periódica configurable (polling bajo demanda)
+  // Polling para estado del aviso al mentor
   useEffect(() => {
     if (!estado || cargando) return;
-    // Solo cuando hay un aviso al mentor en progreso revisamos periódicamente
-    let intervalId: any = null;
-    if (estado.estadoNotificacionMentor === 'en_progreso') {
-      intervalId = setInterval(async () => {
-        const resp = await activeService.obtenerEstado(estado.id);
-        if (resp.exito && resp.datos) {
-          setEstado(resp.datos);
-        }
-      }, 1500);
-    }
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [estado, activeService, cargando]);
+    if (estado.estadoNotificacionMentor !== 'en_progreso') return;
 
-  const limpiarError = useCallback(() => {
-    setErrorGlobal(null);
-  }, []);
+    const intervalId = setInterval(async () => {
+      const resp = await service.obtenerEstado(estado.id);
+      if (resp.exito && resp.datos) {
+        setEstado(resp.datos);
+      }
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [estado, cargando]);
+
+  const limpiarError = useCallback(() => setErrorGlobal(null), []);
 
   const reintentar = useCallback(async () => {
     await cargarEstadoInicial();
   }, [cargarEstadoInicial]);
-
-  const actualizarSimConfig = useCallback((newConfig: Partial<DemoSimulationConfig>) => {
-    mockServiceInstance.updateSimConfig(newConfig);
-    setSimConfigState(mockServiceInstance.getSimConfig());
-  }, []);
 
   const enviarMensaje = useCallback(
     async (texto: string): Promise<boolean> => {
@@ -139,43 +98,40 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       setErrorGlobal(null);
 
       try {
-        const resp = await activeService.enviarMensajeChat(texto, estado.id);
+        const resp = await service.enviarMensajeChat(texto, estado.id);
         if (resp.exito && resp.datos) {
           setMensajesChat((prev) => [...prev, resp.datos!.respuestaAsistente]);
-          // Refrescar estado para reflejar posibles dolores detectados
-          const estadoActualizado = await activeService.obtenerEstado(estado.id);
+          // Refrescar estado para reflejar posibles dolores detectados por el agente
+          const estadoActualizado = await service.obtenerEstado(estado.id);
           if (estadoActualizado.exito && estadoActualizado.datos) {
             setEstado(estadoActualizado.datos);
           }
           return true;
         } else if (resp.error) {
           setErrorGlobal(resp.error);
-          return false;
         }
-      } catch (err: any) {
+      } catch {
         setErrorGlobal({
           codigo: 'CHAT_ERROR',
           mensaje: 'No se pudo enviar el mensaje. Conservamos tu texto para reintentar.',
         });
-        return false;
       } finally {
         setEsperandoRespuestaChat(false);
       }
       return false;
     },
-    [activeService, estado, esperandoRespuestaChat]
+    [estado, esperandoRespuestaChat]
   );
 
   const omitirSolucion = useCallback(async (): Promise<boolean> => {
     if (!estado) return false;
     setErrorGlobal(null);
     try {
-      const resp = await activeService.omitirSolucion({
+      const resp = await service.omitirSolucion({
         emprendimiento_id: estado.id,
         usuario: 'Emprendedor',
       });
       if (resp.exito) {
-        // Continuar la conversación con un mensaje del asistente
         const mensajeAsistente: MensajeChat = {
           id: `msg-omit-${Date.now()}`,
           emisor: 'asistente',
@@ -187,31 +143,27 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       } else if (resp.error) {
         setErrorGlobal(resp.error);
       }
-    } catch (e: any) {
-      setErrorGlobal({
-        codigo: 'OMITIR_ERROR',
-        mensaje: 'Error al registrar la omisión.',
-      });
+    } catch {
+      setErrorGlobal({ codigo: 'OMITIR_ERROR', mensaje: 'Error al registrar la omisión.' });
     }
     return false;
-  }, [activeService, estado]);
+  }, [estado]);
 
   const confirmarResumen = useCallback(async (): Promise<boolean> => {
     if (!estado) return false;
     setErrorGlobal(null);
     try {
-      const resp = await activeService.confirmarResumen({
+      const resp = await service.confirmarResumen({
         emprendimiento_id: estado.id,
         usuario: 'Emprendedor',
       });
       if (resp.exito) {
-        // Actualizar estado local inmediatamente a resumen_confirmado
         setEstado((prev) => {
           if (!prev) return null;
           return {
             ...prev,
-            etapa: 'resumen_confirmado',
-            estadoNotificacionMentor: 'en_progreso',
+            etapa: 'resumen_confirmado' as EtapaEmprendimiento,
+            estadoNotificacionMentor: 'en_progreso' as EstadoNotificacionMentor,
             fechaConfirmacionResumen: resp.datos?.confirmado_en,
             dolores: prev.dolores.map((d) => ({ ...d, estado: 'confirmado' })),
           };
@@ -220,24 +172,20 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       } else if (resp.error) {
         setErrorGlobal(resp.error);
       }
-    } catch (e: any) {
-      setErrorGlobal({
-        codigo: 'CONFIRMACION_ERROR',
-        mensaje: 'Error al confirmar el resumen.',
-      });
+    } catch {
+      setErrorGlobal({ codigo: 'CONFIRMACION_ERROR', mensaje: 'Error al confirmar el resumen.' });
     }
     return false;
-  }, [activeService, estado]);
+  }, [estado]);
 
   const agregarEtiqueta = useCallback(
     async (etiqueta: string): Promise<boolean> => {
       if (!estado || !etiqueta.trim()) return false;
       const etiquetaFormateada = etiqueta.startsWith('#') ? etiqueta : `#${etiqueta}`;
       if (estado.etiquetas.includes(etiquetaFormateada)) return true;
-
       setErrorGlobal(null);
       try {
-        const resp = await activeService.modificarItem({
+        const resp = await service.modificarItem({
           item_id: 'etiquetas',
           tipo_item: 'etiqueta',
           accion: 'editar',
@@ -252,12 +200,12 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
         } else if (resp.error) {
           setErrorGlobal(resp.error);
         }
-      } catch (e) {
+      } catch {
         setErrorGlobal({ codigo: 'TAG_ERROR', mensaje: 'Error al agregar etiqueta.' });
       }
       return false;
     },
-    [activeService, estado]
+    [estado]
   );
 
   const eliminarEtiqueta = useCallback(
@@ -265,7 +213,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       if (!estado) return false;
       setErrorGlobal(null);
       try {
-        const resp = await activeService.modificarItem({
+        const resp = await service.modificarItem({
           item_id: 'etiquetas',
           tipo_item: 'etiqueta',
           accion: 'eliminar',
@@ -280,12 +228,12 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
         } else if (resp.error) {
           setErrorGlobal(resp.error);
         }
-      } catch (e) {
+      } catch {
         setErrorGlobal({ codigo: 'TAG_ERROR', mensaje: 'Error al eliminar etiqueta.' });
       }
       return false;
     },
-    [activeService, estado]
+    [estado]
   );
 
   const editarDolor = useCallback(
@@ -293,14 +241,11 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       if (!estado) return false;
       setErrorGlobal(null);
       try {
-        const resp = await activeService.modificarItem({
+        const resp = await service.modificarItem({
           item_id: dolorId,
           tipo_item: 'dolor',
           accion: 'editar',
-          nuevo_valor: {
-            nombre: nuevoNombre,
-            etiquetas,
-          },
+          nuevo_valor: { nombre: nuevoNombre, etiquetas },
           motivo,
           usuario: 'Emprendedor',
         });
@@ -318,12 +263,12 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
         } else if (resp.error) {
           setErrorGlobal(resp.error);
         }
-      } catch (e) {
+      } catch {
         setErrorGlobal({ codigo: 'DOLOR_ERROR', mensaje: 'Error al editar el dolor.' });
       }
       return false;
     },
-    [activeService, estado]
+    [estado]
   );
 
   const decidirSugerencia = useCallback(
@@ -331,7 +276,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       if (!estado) return false;
       setErrorGlobal(null);
       try {
-        const resp = await activeService.decidirSugerencia({
+        const resp = await service.decidirSugerencia({
           sugerencia_id: sugerenciaId,
           decision,
           usuario: 'Emprendedor',
@@ -352,45 +297,15 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
         } else if (resp.error) {
           setErrorGlobal(resp.error);
         }
-      } catch (e) {
+      } catch {
         setErrorGlobal({ codigo: 'SUG_ERROR', mensaje: 'Error al procesar sugerencia.' });
       }
       return false;
     },
-    [activeService, estado]
+    [estado]
   );
 
-  // Forzar estados de demo
-  const forzarEtapa = useCallback((etapa: EtapaEmprendimiento) => {
-    setEstado((prev) => (prev ? { ...prev, etapa } : null));
-    mockServiceInstance.setEstadoDirecto({ etapa });
-  }, []);
-
-  const forzarAvisoMentor = useCallback((estadoNotif: EstadoNotificacionMentor) => {
-    setEstado((prev) => (prev ? { ...prev, estadoNotificacionMentor: estadoNotif } : null));
-    mockServiceInstance.setEstadoDirecto({ estadoNotificacionMentor: estadoNotif });
-  }, []);
-
-  const forzarVarianteMentor = useCallback((variante: 'sin_nota' | 'nota_normal' | 'con_ajuste_score') => {
-    let nota: NotaMentor | null = null;
-    if (variante === 'nota_normal') {
-      nota = INITIAL_NOTA_MENTOR;
-    } else if (variante === 'con_ajuste_score') {
-      nota = NOTA_MENTOR_CON_AJUSTE;
-    }
-    setEstado((prev) => (prev ? { ...prev, notaMentor: nota } : null));
-    mockServiceInstance.setEstadoDirecto({ notaMentor: nota });
-  }, []);
-
-  const resetDemoData = useCallback(() => {
-    mockServiceInstance.resetData();
-    setEstado(JSON.parse(JSON.stringify(INITIAL_ESTADO_EMPRENDIMIENTO)));
-    setMensajesChat(JSON.parse(JSON.stringify(INITIAL_CHAT_MESSAGES)));
-    setErrorGlobal(null);
-    setSimConfigState(mockServiceInstance.getSimConfig());
-  }, []);
-
-  const value = {
+  const value: EmprendimientoContextValue = {
     estado,
     mensajesChat,
     cargando,
@@ -398,10 +313,6 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
     errorGlobal,
     limpiarError,
     reintentar,
-    isDemoMode,
-    setIsDemoMode,
-    simConfig,
-    actualizarSimConfig,
     enviarMensaje,
     omitirSolucion,
     confirmarResumen,
@@ -409,10 +320,6 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
     eliminarEtiqueta,
     editarDolor,
     decidirSugerencia,
-    forzarEtapa,
-    forzarAvisoMentor,
-    forzarVarianteMentor,
-    resetDemoData,
   };
 
   return <EmprendimientoContext.Provider value={value}>{children}</EmprendimientoContext.Provider>;
