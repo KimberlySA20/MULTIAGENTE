@@ -6,6 +6,7 @@ import type {
   MensajeChat,
 } from '../types';
 import { HttpEmprendimientoService } from '../services/emprendimientoService';
+import { CONFIG } from '../config/constants';
 
 const service = new HttpEmprendimientoService();
 

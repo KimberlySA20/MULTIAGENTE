@@ -4,6 +4,9 @@
 
 export const CONFIG = {
   API_BASE_URL: import.meta.env.VITE_API_URL || 'https://api.plataforma.local/v1',
+  // Poner en "true" cuando el endpoint GET /emprendimiento/:id/diagnostico esté disponible.
+  // Con "false" la app arranca con estado vacío sin hacer ninguna llamada HTTP.
+  API_READY: import.meta.env.VITE_API_READY === 'true',
   // URL del Webhook del agente (Flujo 1 · chat de contextualización). Si está vacía se usa API_BASE_URL + /chat/mensaje
   WEBHOOK_CHAT_URL: import.meta.env.VITE_WEBHOOK_CHAT_URL || '',
   // true cuando hay una URL de webhook configurada
