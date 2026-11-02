@@ -9,6 +9,31 @@ import { HttpEmprendimientoService } from '../services/emprendimientoService';
 
 const service = new HttpEmprendimientoService();
 
+/**
+ * Estado vacío que se usa cuando el backend aún no está disponible.
+ * La app arranca sin errores y se actualiza en cuanto el endpoint responda.
+ */
+const ESTADO_VACIO: EstadoEmprendimiento = {
+  id: 'emp-101',
+  nombreEmprendimiento: '',
+  etapa: 'resumen_por_confirmar',
+  etiquetas: [],
+  dolores: [],
+  sugerencias: [],
+  notaMentor: null,
+  estadoNotificacionMentor: 'no_iniciada',
+  resumenEstado: {
+    confirmado: '',
+    queCambio: '',
+    esperaMentor: '',
+    proximaAccion: '',
+  },
+};
+
+/** Errores de red/resolución DNS → el backend aún no está conectado */
+const esErrorDeConexion = (codigo: string) =>
+  ['NETWORK_ERROR', 'ERR_NAME_NOT_RESOLVED', 'ENOTFOUND'].includes(codigo);
+
 interface EmprendimientoContextValue {
   estado: EstadoEmprendimiento | null;
   mensajesChat: MensajeChat[];
@@ -45,13 +70,16 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       if (resp.exito && resp.datos) {
         setEstado(resp.datos);
       } else if (resp.error) {
-        setErrorGlobal(resp.error);
+        if (esErrorDeConexion(resp.error.codigo)) {
+          // Backend aún no disponible → arrancar con estado vacío sin mostrar error
+          setEstado(ESTADO_VACIO);
+        } else {
+          setErrorGlobal(resp.error);
+        }
       }
     } catch {
-      setErrorGlobal({
-        codigo: 'UNKNOWN_ERROR',
-        mensaje: 'Ocurrió un error inesperado al cargar el estado.',
-      });
+      // Error inesperado → estado vacío silencioso
+      setEstado(ESTADO_VACIO);
     } finally {
       setCargando(false);
     }
