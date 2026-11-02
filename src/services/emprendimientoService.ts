@@ -119,7 +119,7 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
    * Si VITE_WEBHOOK_CHAT_URL está definida, se llama directo al Webhook del agente;
    * si no, cae al endpoint POST /chat/mensaje del backend.
    *
-   * Body enviado:    { mensaje, emprendimiento_id, session_id }
+   * Body enviado:    { message, emprendimiento_id, session_id }
    * Respuesta (acepta varias formas, según cómo responda el nodo "Respond to Webhook"):
    *   { respuesta | output | text | message | contenido: string }  o  { respuestaAsistente: MensajeChat }
    */
@@ -138,8 +138,9 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        // El webhook de Visione Flow valida el campo "message" (en inglés)
         body: JSON.stringify({
-          mensaje,
+          message: mensaje,
           emprendimiento_id: emprendimientoId,
           session_id: emprendimientoId,
         }),
