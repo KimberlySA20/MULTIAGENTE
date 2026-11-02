@@ -147,11 +147,15 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
       });
 
       if (!response.ok) {
+        // Leemos el cuerpo para poder diagnosticar por qué el webhook rechazó la petición
+        const cuerpo = await response.text().catch(() => '');
+        console.error(`[Webhook chat] ${response.status} ${response.statusText}`, cuerpo);
         return {
           exito: false,
           error: {
             codigo: response.status.toString(),
             mensaje: `El agente no pudo responder (${response.status}). Intentá de nuevo.`,
+            detalle: cuerpo.slice(0, 500),
           },
         };
       }
