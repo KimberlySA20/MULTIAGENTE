@@ -164,6 +164,7 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
       const data = await response.json().catch(() => null);
       const respuesta = extraerRespuestaAgente(data);
       if (!respuesta) {
+        console.error('[Webhook chat] Respuesta con formato no reconocido:', data);
         return {
           exito: false,
           error: {
@@ -192,21 +193,47 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
   }
 }
 
+/** Campos donde el flujo puede devolver el texto de la respuesta (en orden de prioridad) */
+const CAMPOS_TEXTO = [
+  'respuesta', 'response', 'reply', 'output', 'text', 'message', 'content', 'contenido', 'answer', 'result',
+];
+/** Contenedores donde el flujo puede anidar la respuesta */
+const CAMPOS_ANIDADOS = ['data', 'result', 'output', 'response', 'body', 'json'];
+
+/**
+ * Busca el texto de la respuesta del agente, aunque venga anidado
+ * (por ejemplo { success, data: { response: "..." } }).
+ */
+function buscarTexto(valor: unknown, profundidad = 0): string | null {
+  if (typeof valor === 'string') return valor.trim() ? valor : null;
+  if (!valor || typeof valor !== 'object' || profundidad > 4) return null;
+  if (Array.isArray(valor)) return buscarTexto(valor[0], profundidad + 1);
+
+  const obj = valor as Record<string, unknown>;
+  for (const campo of CAMPOS_TEXTO) {
+    const encontrado = buscarTexto(obj[campo], profundidad + 1);
+    if (encontrado) return encontrado;
+  }
+  for (const campo of CAMPOS_ANIDADOS) {
+    const encontrado = buscarTexto(obj[campo], profundidad + 1);
+    if (encontrado) return encontrado;
+  }
+  return null;
+}
+
 /**
  * Normaliza la respuesta del Webhook del agente a un MensajeChat.
  */
 function extraerRespuestaAgente(data: unknown): MensajeChat | null {
   // n8n / flujos suelen devolver un arreglo con un solo item
   const raiz: any = Array.isArray(data) ? data[0] : data;
-  if (!raiz || typeof raiz !== 'object') return null;
 
-  if (raiz.respuestaAsistente && typeof raiz.respuestaAsistente.contenido === 'string') {
+  // Si ya viene como MensajeChat completo, se respeta tal cual
+  if (raiz && typeof raiz === 'object' && typeof raiz.respuestaAsistente?.contenido === 'string') {
     return raiz.respuestaAsistente as MensajeChat;
   }
 
-  const texto = [raiz.respuesta, raiz.output, raiz.text, raiz.message, raiz.contenido].find(
-    (v) => typeof v === 'string' && v.trim()
-  );
+  const texto = buscarTexto(raiz);
   if (!texto) return null;
 
   return {
