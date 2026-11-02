@@ -51,9 +51,9 @@ const VistaEmprendedorContenido: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Columna Izquierda: Chat (5 columnas en desktop) */}
-            <div className="lg:col-span-5 h-full flex flex-col">
+            <div className="lg:col-span-5 flex flex-col">
               <ChatPanel />
             </div>
 
