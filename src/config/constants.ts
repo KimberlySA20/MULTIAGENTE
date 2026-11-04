@@ -11,6 +11,16 @@ export const CONFIG = {
   WEBHOOK_CHAT_URL: import.meta.env.VITE_WEBHOOK_CHAT_URL || '',
   // true cuando hay una URL de webhook configurada
   WEBHOOK_CHAT_ACTIVO: !!(import.meta.env.VITE_WEBHOOK_CHAT_URL && import.meta.env.VITE_WEBHOOK_CHAT_URL.trim()),
+  // Un Webhook por flujo de Visione Flow. Si alguno está vacío, esa acción devuelve
+  // un error claro ("flujo no conectado") en vez de intentar llamar a un backend inexistente.
+  // Flujo 2 · Panel: confirmar / editar / eliminar un dolor o etiqueta
+  WEBHOOK_PANEL_ITEM_URL: import.meta.env.VITE_WEBHOOK_PANEL_ITEM_URL || '',
+  // Flujo 2b · Confirmar el resumen del diagnóstico
+  WEBHOOK_CONFIRMAR_RESUMEN_URL: import.meta.env.VITE_WEBHOOK_CONFIRMAR_RESUMEN_URL || '',
+  // Flujo 4 · Omitir solución (aún no existe el workflow)
+  WEBHOOK_OMITIR_URL: import.meta.env.VITE_WEBHOOK_OMITIR_URL || '',
+  // Flujo 4 · Aceptar / descartar sugerencia (aún no configurado)
+  WEBHOOK_DECIDIR_SUGERENCIA_URL: import.meta.env.VITE_WEBHOOK_DECIDIR_SUGERENCIA_URL || '',
   WEBHOOK_TIMEOUT_MS: 60000,
 };
 

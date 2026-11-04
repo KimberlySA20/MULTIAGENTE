@@ -56,8 +56,83 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
     }
   }
 
+  /**
+   * POST a un Webhook de Visione Flow (cada flujo tiene su propia URL).
+   * Si la URL no está configurada devuelve un error claro en vez de llamar a la nada.
+   */
+  private async postWebhook<T>(url: string, nombreVariable: string, body: unknown): Promise<RespuestaServicio<T>> {
+    if (!url) {
+      return {
+        exito: false,
+        error: {
+          codigo: 'WEBHOOK_NO_CONFIGURADO',
+          mensaje: 'Esta acción todavía no está conectada a su flujo.',
+          detalle: `Falta definir ${nombreVariable} en el .env`,
+        },
+      };
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), CONFIG.WEBHOOK_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const cuerpo = await response.text().catch(() => '');
+        console.error(`[Webhook ${nombreVariable}] ${response.status} ${response.statusText}`, cuerpo);
+        return {
+          exito: false,
+          error: {
+            codigo: response.status.toString(),
+            mensaje: `El flujo no pudo procesar la acción (${response.status}). Intentá de nuevo.`,
+            detalle: cuerpo.slice(0, 500),
+          },
+        };
+      }
+
+      // Los flujos suelen responder con un arreglo de un item o anidar el resultado en "data"
+      const json = await response.json().catch(() => null);
+      const raiz: any = Array.isArray(json) ? json[0] : json;
+
+      // Un flujo puede responder 200 pero avisar que algo falló
+      if (raiz && (raiz.exito === false || raiz.success === false)) {
+        const msg = [raiz.mensaje, raiz.message, raiz.error].find((v) => typeof v === 'string' && v.trim());
+        return {
+          exito: false,
+          error: {
+            codigo: 'FLUJO_RECHAZO',
+            mensaje: msg || 'El flujo no pudo completar la acción.',
+            detalle: JSON.stringify(raiz).slice(0, 500),
+          },
+        };
+      }
+
+      const datos = (raiz?.data && typeof raiz.data === 'object' ? raiz.data : raiz) ?? {};
+      return { exito: true, datos: datos as T };
+    } catch (err: any) {
+      const timeout = err?.name === 'AbortError';
+      return {
+        exito: false,
+        error: {
+          codigo: timeout ? 'TIMEOUT' : 'NETWORK_ERROR',
+          mensaje: timeout
+            ? 'El flujo tardó demasiado en responder. Intentá de nuevo.'
+            : 'No se pudo conectar con el flujo. Verificá tu conexión.',
+          detalle: err?.message,
+        },
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   // ============================================================
-  // ENDPOINTS DEFINIDOS EN LA ESPECIFICACIÓN DEL BACKEND
+  // ENDPOINTS / WEBHOOKS
   // ============================================================
 
   /**
@@ -72,46 +147,50 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
 
   /**
    * Flujo 2: Modificar items del panel (confirmar, editar o eliminar)
-   * Endpoint: POST /panel/item
+   * Webhook: VITE_WEBHOOK_PANEL_ITEM_URL
    */
   async modificarItem(payload: ModificarItemPayload): Promise<RespuestaServicio<{ item_id: string; estado: string }>> {
-    return this.request<{ item_id: string; estado: string }>('/panel/item', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    return this.postWebhook<{ item_id: string; estado: string }>(
+      CONFIG.WEBHOOK_PANEL_ITEM_URL,
+      'VITE_WEBHOOK_PANEL_ITEM_URL',
+      payload
+    );
   }
 
   /**
    * Flujo 2b: Confirmar el resumen de diagnóstico
-   * Endpoint: POST /panel/resumen/confirmar
+   * Webhook: VITE_WEBHOOK_CONFIRMAR_RESUMEN_URL
    */
   async confirmarResumen(payload: ConfirmarResumenPayload): Promise<RespuestaServicio<{ etapa: string; confirmado_en: string }>> {
-    return this.request<{ etapa: string; confirmado_en: string }>('/panel/resumen/confirmar', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    return this.postWebhook<{ etapa: string; confirmado_en: string }>(
+      CONFIG.WEBHOOK_CONFIRMAR_RESUMEN_URL,
+      'VITE_WEBHOOK_CONFIRMAR_RESUMEN_URL',
+      payload
+    );
   }
 
   /**
    * Flujo 4: Omitir solución por ahora
-   * Endpoint: POST /problema/omitir
+   * Webhook: VITE_WEBHOOK_OMITIR_URL (el workflow aún no existe)
    */
   async omitirSolucion(payload: OmitirSolucionPayload): Promise<RespuestaServicio<{ registrado: boolean }>> {
-    return this.request<{ registrado: boolean }>('/problema/omitir', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    return this.postWebhook<{ registrado: boolean }>(
+      CONFIG.WEBHOOK_OMITIR_URL,
+      'VITE_WEBHOOK_OMITIR_URL',
+      payload
+    );
   }
 
   /**
    * Flujo 4: Decidir sugerencia de la IA (aceptar o descartar)
-   * Endpoint: POST /sugerencia/decidir
+   * Webhook: VITE_WEBHOOK_DECIDIR_SUGERENCIA_URL (aún no configurado)
    */
   async decidirSugerencia(payload: DecidirSugerenciaPayload): Promise<RespuestaServicio<{ sugerencia_id: string; nuevo_estado: string }>> {
-    return this.request<{ sugerencia_id: string; nuevo_estado: string }>('/sugerencia/decidir', {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    });
+    return this.postWebhook<{ sugerencia_id: string; nuevo_estado: string }>(
+      CONFIG.WEBHOOK_DECIDIR_SUGERENCIA_URL,
+      'VITE_WEBHOOK_DECIDIR_SUGERENCIA_URL',
+      payload
+    );
   }
 
   /**

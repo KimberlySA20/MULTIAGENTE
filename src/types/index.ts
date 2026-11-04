@@ -148,6 +148,7 @@ export interface RespuestaServicio<T> {
 
 // Payload de Flujo 2: Modificar items del panel (POST /panel/item)
 export interface ModificarItemPayload {
+  emprendimiento_id: string;
   item_id: string;
   tipo_item: 'dolor' | 'etiqueta';
   accion: 'confirmar' | 'editar' | 'eliminar';

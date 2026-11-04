@@ -6,7 +6,6 @@ import type {
   MensajeChat,
 } from '../types';
 import { HttpEmprendimientoService } from '../services/emprendimientoService';
-import { CONFIG } from '../config/constants';
 
 const service = new HttpEmprendimientoService();
 
@@ -215,6 +214,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       setErrorGlobal(null);
       try {
         const resp = await service.modificarItem({
+          emprendimiento_id: estado.id,
           item_id: 'etiquetas',
           tipo_item: 'etiqueta',
           accion: 'editar',
@@ -243,6 +243,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       setErrorGlobal(null);
       try {
         const resp = await service.modificarItem({
+          emprendimiento_id: estado.id,
           item_id: 'etiquetas',
           tipo_item: 'etiqueta',
           accion: 'eliminar',
@@ -271,6 +272,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       setErrorGlobal(null);
       try {
         const resp = await service.modificarItem({
+          emprendimiento_id: estado.id,
           item_id: dolorId,
           tipo_item: 'dolor',
           accion: 'editar',
