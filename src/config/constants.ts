@@ -3,6 +3,9 @@
  */
 
 export const CONFIG = {
+  // Sin inicio de sesión: el emprendimiento activo se fija aquí. El chat lo envía en el body
+  // del webhook (emprendimiento_id y session_id) y el agente lo toma de ahí.
+  EMPRENDIMIENTO_ID: (import.meta.env.VITE_EMPRENDIMIENTO_ID || '1').trim(),
   API_BASE_URL: import.meta.env.VITE_API_URL || 'https://api.plataforma.local/v1',
   // Poner en "true" cuando el endpoint GET /emprendimiento/:id/diagnostico esté disponible.
   // Con "false" la app arranca con estado vacío sin hacer ninguna llamada HTTP.

@@ -6,6 +6,7 @@ import type {
   MensajeChat,
 } from '../types';
 import { HttpEmprendimientoService } from '../services/emprendimientoService';
+import { CONFIG } from '../config/constants';
 
 const service = new HttpEmprendimientoService();
 
@@ -14,7 +15,7 @@ const service = new HttpEmprendimientoService();
  * La app arranca sin errores y se actualiza en cuanto el endpoint responda.
  */
 const ESTADO_VACIO: EstadoEmprendimiento = {
-  id: 'emp-101',
+  id: CONFIG.EMPRENDIMIENTO_ID,
   nombreEmprendimiento: '',
   etapa: 'resumen_por_confirmar',
   etiquetas: [],
@@ -66,7 +67,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
     setCargando(true);
     setErrorGlobal(null);
     try {
-      const resp = await service.obtenerEstado('emp-101');
+      const resp = await service.obtenerEstado(CONFIG.EMPRENDIMIENTO_ID);
       if (resp.exito && resp.datos) {
         setEstado(resp.datos);
       } else if (resp.error) {
