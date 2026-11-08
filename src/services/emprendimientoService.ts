@@ -146,7 +146,7 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
       const resp = await this.postWebhook<unknown>(
         CONFIG.WEBHOOK_ESTADO_URL,
         'VITE_WEBHOOK_ESTADO_URL',
-        { message: 'obtener_estado', emprendimiento_id: emprendimientoId }
+        { message: String(emprendimientoId), emprendimiento_id: emprendimientoId }
       );
       if (!resp.exito) return { exito: false, error: resp.error };
 
