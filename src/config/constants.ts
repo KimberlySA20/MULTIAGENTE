@@ -20,6 +20,9 @@ export const CONFIG = {
   WEBHOOK_PANEL_ITEM_URL: import.meta.env.VITE_WEBHOOK_PANEL_ITEM_URL || '',
   // Flujo 2b · Confirmar el resumen del diagnóstico
   WEBHOOK_CONFIRMAR_RESUMEN_URL: import.meta.env.VITE_WEBHOOK_CONFIRMAR_RESUMEN_URL || '',
+  // Flujo 2c · Estado del emprendimiento (lee dolores, etiquetas y etapa desde Supabase).
+  // Si está vacía, el panel usa API_BASE_URL + /emprendimiento/:id/diagnostico (que hoy no existe).
+  WEBHOOK_ESTADO_URL: import.meta.env.VITE_WEBHOOK_ESTADO_URL || '',
   // Flujo 4 · Omitir solución (aún no existe el workflow)
   WEBHOOK_OMITIR_URL: import.meta.env.VITE_WEBHOOK_OMITIR_URL || '',
   // Flujo 4 · Aceptar / descartar sugerencia (aún no configurado)

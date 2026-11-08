@@ -1,6 +1,7 @@
 import { CONFIG } from '../config/constants';
 import type {
   ConfirmarResumenPayload,
+  Dolor,
   DecidirSugerenciaPayload,
   EstadoEmprendimiento,
   MensajeChat,
@@ -140,6 +141,30 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
    * Endpoint: GET /emprendimiento/:id/diagnostico
    */
   async obtenerEstado(emprendimientoId: string): Promise<RespuestaServicio<EstadoEmprendimiento>> {
+    // Flujo 2c: el estado se lee desde Supabase a través de un flujo de Visione Flow
+    if (CONFIG.WEBHOOK_ESTADO_URL) {
+      const resp = await this.postWebhook<unknown>(
+        CONFIG.WEBHOOK_ESTADO_URL,
+        'VITE_WEBHOOK_ESTADO_URL',
+        { message: 'obtener_estado', emprendimiento_id: emprendimientoId }
+      );
+      if (!resp.exito) return { exito: false, error: resp.error };
+
+      const estado = normalizarEstado(resp.datos, emprendimientoId);
+      if (!estado) {
+        console.error('[Webhook estado] Respuesta con formato no reconocido:', resp.datos);
+        return {
+          exito: false,
+          error: {
+            codigo: 'ESTADO_INVALIDO',
+            mensaje: 'El flujo del estado respondió en un formato que no se pudo leer.',
+            detalle: JSON.stringify(resp.datos).slice(0, 500),
+          },
+        };
+      }
+      return { exito: true, datos: estado };
+    }
+
     return this.request<EstadoEmprendimiento>(`/emprendimiento/${emprendimientoId}/diagnostico`, {
       method: 'GET',
     });
@@ -320,5 +345,67 @@ function extraerRespuestaAgente(data: unknown): MensajeChat | null {
     emisor: 'asistente',
     contenido: texto,
     timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  };
+}
+
+/**
+ * Busca, aunque venga anidado (por ejemplo { data: { data: {...} } } según cómo responda
+ * el nodo Salida del flujo), el objeto que contiene el estado del emprendimiento.
+ */
+function buscarEstado(valor: unknown, profundidad = 0): Record<string, any> | null {
+  if (!valor || typeof valor !== 'object' || profundidad > 4) return null;
+  if (Array.isArray(valor)) return buscarEstado(valor[0], profundidad + 1);
+  const obj = valor as Record<string, any>;
+  if (Array.isArray(obj.dolores) || Array.isArray(obj.etiquetas)) return obj;
+  for (const campo of CAMPOS_ANIDADOS) {
+    const encontrado = buscarEstado(obj[campo], profundidad + 1);
+    if (encontrado) return encontrado;
+  }
+  return null;
+}
+
+const numeroONull = (v: unknown): number | null =>
+  typeof v === 'number' && Number.isFinite(v) ? v : null;
+
+/**
+ * Convierte lo que devuelve el flujo del estado en un EstadoEmprendimiento completo.
+ * Solo rellena estructuras vacías (arreglos, textos); nunca inventa dolores ni etiquetas.
+ */
+function normalizarEstado(datos: unknown, emprendimientoId: string): EstadoEmprendimiento | null {
+  const raw = buscarEstado(datos);
+  if (!raw) return null;
+
+  const dolores: Dolor[] = (Array.isArray(raw.dolores) ? raw.dolores : []).map((d: any) => ({
+    id: String(d.id),
+    nombre: String(d.nombre ?? d.dolor ?? ''),
+    importancia: numeroONull(d.importancia),
+    satisfaccion: numeroONull(d.satisfaccion),
+    score: numeroONull(d.score),
+    nivel: d.nivel === 'Alto' || d.nivel === 'Medio' || d.nivel === 'Bajo' ? d.nivel : null,
+    cita: typeof d.cita === 'string' && d.cita.trim() ? d.cita : null,
+    confianza: d.confianza === 'alta' || d.confianza === 'media' || d.confianza === 'baja' ? d.confianza : 'media',
+    estado: d.estado ?? 'por_confirmar',
+    etiquetas: Array.isArray(d.etiquetas) ? d.etiquetas.map(String) : [],
+    tipoItem: d.tipoItem ?? 'estimacion',
+  }));
+
+  const resumen = raw.resumenEstado ?? {};
+  return {
+    id: String(raw.id ?? emprendimientoId),
+    nombreEmprendimiento: String(raw.nombreEmprendimiento ?? ''),
+    etapa: raw.etapa ?? 'resumen_por_confirmar',
+    etiquetas: Array.isArray(raw.etiquetas) ? raw.etiquetas.map(String) : [],
+    dolores,
+    sugerencias: Array.isArray(raw.sugerencias) ? raw.sugerencias : [],
+    notaMentor: raw.notaMentor ?? null,
+    estadoNotificacionMentor: raw.estadoNotificacionMentor ?? 'no_iniciada',
+    resumenConfirmadoPor: raw.resumenConfirmadoPor,
+    fechaConfirmacionResumen: raw.fechaConfirmacionResumen,
+    resumenEstado: {
+      confirmado: String(resumen.confirmado ?? ''),
+      queCambio: String(resumen.queCambio ?? ''),
+      esperaMentor: String(resumen.esperaMentor ?? ''),
+      proximaAccion: String(resumen.proximaAccion ?? ''),
+    },
   };
 }
