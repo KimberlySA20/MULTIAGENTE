@@ -75,7 +75,10 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
           // Backend aún no disponible → arrancar con estado vacío sin mostrar error
           setEstado(ESTADO_VACIO);
         } else {
+          // El panel no pudo leer el estado, pero el chat no debe quedar bloqueado:
+          // se muestra el error y se arranca con el estado vacío.
           setErrorGlobal(resp.error);
+          setEstado(ESTADO_VACIO);
         }
       }
     } catch {
@@ -135,6 +138,14 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
           if (estadoActualizado.exito && estadoActualizado.datos) {
             setEstado(estadoActualizado.datos);
           }
+          // El subflujo que clasifica los dolores corre en segundo plano (async): puede terminar
+          // de guardar unos segundos después de la respuesta del chat, así que se vuelve a leer.
+          [5000, 12000].forEach((ms) =>
+            setTimeout(async () => {
+              const r = await service.obtenerEstado(estado.id);
+              if (r.exito && r.datos) setEstado(r.datos);
+            }, ms)
+          );
           return true;
         } else if (resp.error) {
           setErrorGlobal(resp.error);
