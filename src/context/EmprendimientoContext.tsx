@@ -5,35 +5,83 @@ import type {
   EtapaEmprendimiento,
   MensajeChat,
 } from '../types';
+import type { PerfilUsuario } from '../types/auth';
 import { HttpEmprendimientoService } from '../services/emprendimientoService';
 import { CONFIG } from '../config/constants';
+import { useAuth } from './AuthContext';
+import { supabase, isSupabaseConfigured } from '../services/supabase';
 
 const service = new HttpEmprendimientoService();
 
-/**
- * Estado vacío que se usa cuando el backend aún no está disponible.
- * La app arranca sin errores y se actualiza en cuanto el endpoint responda.
- */
-const ESTADO_VACIO: EstadoEmprendimiento = {
-  id: CONFIG.EMPRENDIMIENTO_ID,
-  nombreEmprendimiento: '',
-  etapa: 'resumen_por_confirmar',
-  etiquetas: [],
-  dolores: [],
-  sugerencias: [],
-  notaMentor: null,
-  estadoNotificacionMentor: 'no_iniciada',
-  resumenEstado: {
-    confirmado: '',
-    queCambio: '',
-    esperaMentor: '',
-    proximaAccion: '',
-  },
-};
+function crearEstadoInicialVacio(empId: string, usuario: PerfilUsuario | null): EstadoEmprendimiento {
+  const nombreCorto = usuario?.nombreCompleto?.split(' ')[0] || 'Emprendedor';
+  return {
+    id: empId,
+    nombreEmprendimiento: `Emprendimiento de ${nombreCorto}`,
+    etapa: 'resumen_por_confirmar',
+    etiquetas: [],
+    dolores: [],
+    sugerencias: [],
+    notaMentor: null,
+    estadoNotificacionMentor: 'no_iniciada',
+    resumenEstado: {
+      confirmado: 'Borrador en curso',
+      queCambio: 'Comenzá a conversar con el asistente en el chat para iniciar tu diagnóstico.',
+      esperaMentor: 'Pendiente: se avisará al mentor automáticamente al confirmar el resumen.',
+      proximaAccion: 'Contale a la IA sobre tu negocio para identificar los dolores principales.',
+    },
+  };
+}
 
-/** Errores de red/resolución DNS → el backend aún no está conectado */
-const esErrorDeConexion = (codigo: string) =>
-  ['NETWORK_ERROR', 'ERR_NAME_NOT_RESOLVED', 'ENOTFOUND'].includes(codigo);
+/**
+ * Busca si el usuario ya tiene un emprendimiento en Supabase; si no tiene,
+ * le crea uno nuevo asociado a su cuenta para que su diagnóstico arranque limpio.
+ */
+async function resolverEmprendimientoId(usuario: PerfilUsuario | null): Promise<string> {
+  if (!usuario) return CONFIG.EMPRENDIMIENTO_ID;
+
+  if (isSupabaseConfigured && supabase && usuario.id) {
+    try {
+      // 1. Buscar si ya existe un emprendimiento asignado a este emprendedor
+      const { data: existente } = await supabase
+        .from('emprendimientos')
+        .select('id, nombre')
+        .eq('emprendedor_id', usuario.id)
+        .order('id', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      if (existente?.id) {
+        return String(existente.id);
+      }
+
+      // 2. Si no tiene, registrar un nuevo emprendimiento para este usuario
+      const nombreInicial = `Emprendimiento de ${usuario.nombreCompleto?.split(' ')[0] || 'Emprendedor'}`;
+      const { data: nuevo, error: errInsert } = await supabase
+        .from('emprendimientos')
+        .insert({
+          emprendedor_id: usuario.id,
+          nombre: nombreInicial,
+          fase_actual: 'fase_0',
+          estado_revision: 'En diagnóstico',
+        })
+        .select('id')
+        .maybeSingle();
+
+      if (nuevo?.id) {
+        return String(nuevo.id);
+      }
+      if (errInsert) {
+        console.warn('[EmprendimientoContext] Aviso al registrar en Supabase:', errInsert.message);
+      }
+    } catch (err) {
+      console.warn('[EmprendimientoContext] Error conectando con Supabase:', err);
+    }
+  }
+
+  // Fallback si no está Supabase
+  return usuario.id || CONFIG.EMPRENDIMIENTO_ID;
+}
 
 interface EmprendimientoContextValue {
   estado: EstadoEmprendimiento | null;
@@ -57,6 +105,7 @@ interface EmprendimientoContextValue {
 const EmprendimientoContext = createContext<EmprendimientoContextValue | null>(null);
 
 export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { usuario } = useAuth();
   const [estado, setEstado] = useState<EstadoEmprendimiento | null>(null);
   const [mensajesChat, setMensajesChat] = useState<MensajeChat[]>([]);
   const [cargando, setCargando] = useState<boolean>(true);
@@ -67,31 +116,51 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
     setCargando(true);
     setErrorGlobal(null);
     try {
-      const resp = await service.obtenerEstado(CONFIG.EMPRENDIMIENTO_ID);
+      const empId = await resolverEmprendimientoId(usuario);
+      const resp = await service.obtenerEstado(empId);
+
       if (resp.exito && resp.datos) {
+        // Si el webhook devolvió datos existentes para este ID
         setEstado(resp.datos);
-      } else if (resp.error) {
-        if (esErrorDeConexion(resp.error.codigo)) {
-          // Backend aún no disponible → arrancar con estado vacío sin mostrar error
-          setEstado(ESTADO_VACIO);
-        } else {
-          // El panel no pudo leer el estado, pero el chat no debe quedar bloqueado:
-          // se muestra el error y se arranca con el estado vacío.
-          setErrorGlobal(resp.error);
-          setEstado(ESTADO_VACIO);
-        }
+      } else {
+        // Si es un emprendimiento nuevo o el webhook no tiene dolores aún, arrancar 100% limpio
+        setEstado(crearEstadoInicialVacio(empId, usuario));
       }
     } catch {
-      // Error inesperado → estado vacío silencioso
-      setEstado(ESTADO_VACIO);
+      const fallbackId = usuario?.id || CONFIG.EMPRENDIMIENTO_ID;
+      setEstado(crearEstadoInicialVacio(fallbackId, usuario));
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [usuario]);
 
   useEffect(() => {
     cargarEstadoInicial();
   }, [cargarEstadoInicial]);
+
+  // Recuperar historial del chat para este emprendimiento al cargar
+  useEffect(() => {
+    if (!estado?.id) return;
+    const clave = `chat_historial_${estado.id}`;
+    const guardados = localStorage.getItem(clave);
+    if (guardados) {
+      try {
+        const parsed = JSON.parse(guardados);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMensajesChat(parsed);
+        }
+      } catch (e) {
+        console.warn('Error leyendo historial de chat:', e);
+      }
+    }
+  }, [estado?.id]);
+
+  // Guardar mensajes automáticamente en localStorage cada vez que se envía o recibe uno
+  useEffect(() => {
+    if (!estado?.id || mensajesChat.length === 0) return;
+    const clave = `chat_historial_${estado.id}`;
+    localStorage.setItem(clave, JSON.stringify(mensajesChat));
+  }, [mensajesChat, estado?.id]);
 
   // Polling para estado del aviso al mentor
   useEffect(() => {
@@ -138,14 +207,6 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
           if (estadoActualizado.exito && estadoActualizado.datos) {
             setEstado(estadoActualizado.datos);
           }
-          // El subflujo que clasifica los dolores corre en segundo plano (async): puede terminar
-          // de guardar unos segundos después de la respuesta del chat, así que se vuelve a leer.
-          [5000, 12000].forEach((ms) =>
-            setTimeout(async () => {
-              const r = await service.obtenerEstado(estado.id);
-              if (r.exito && r.datos) setEstado(r.datos);
-            }, ms)
-          );
           return true;
         } else if (resp.error) {
           setErrorGlobal(resp.error);
@@ -169,7 +230,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
     try {
       const resp = await service.omitirSolucion({
         emprendimiento_id: estado.id,
-        usuario: 'Emprendedor',
+        usuario: usuario?.nombreCompleto || 'Emprendedor',
       });
       if (resp.exito) {
         const mensajeAsistente: MensajeChat = {
@@ -187,7 +248,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       setErrorGlobal({ codigo: 'OMITIR_ERROR', mensaje: 'Error al registrar la omisión.' });
     }
     return false;
-  }, [estado]);
+  }, [estado, usuario]);
 
   const confirmarResumen = useCallback(async (): Promise<boolean> => {
     if (!estado) return false;
@@ -195,7 +256,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
     try {
       const resp = await service.confirmarResumen({
         emprendimiento_id: estado.id,
-        usuario: 'Emprendedor',
+        usuario: usuario?.nombreCompleto || 'Emprendedor',
       });
       if (resp.exito) {
         setEstado((prev) => {
@@ -216,7 +277,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       setErrorGlobal({ codigo: 'CONFIRMACION_ERROR', mensaje: 'Error al confirmar el resumen.' });
     }
     return false;
-  }, [estado]);
+  }, [estado, usuario]);
 
   const agregarEtiqueta = useCallback(
     async (etiqueta: string): Promise<boolean> => {
@@ -231,7 +292,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
           tipo_item: 'etiqueta',
           accion: 'editar',
           nuevo_valor: { nombre: etiquetaFormateada },
-          usuario: 'Emprendedor',
+          usuario: usuario?.nombreCompleto || 'Emprendedor',
         });
         if (resp.exito) {
           setEstado((prev) =>
@@ -246,7 +307,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       }
       return false;
     },
-    [estado]
+    [estado, usuario]
   );
 
   const eliminarEtiqueta = useCallback(
@@ -260,7 +321,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
           tipo_item: 'etiqueta',
           accion: 'eliminar',
           nuevo_valor: { nombre: etiqueta },
-          usuario: 'Emprendedor',
+          usuario: usuario?.nombreCompleto || 'Emprendedor',
         });
         if (resp.exito) {
           setEstado((prev) =>
@@ -275,11 +336,16 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
       }
       return false;
     },
-    [estado]
+    [estado, usuario]
   );
 
   const editarDolor = useCallback(
-    async (dolorId: string, nuevoNombre: string, etiquetas: string[], motivo?: string): Promise<boolean> => {
+    async (
+      dolorId: string,
+      nuevoNombre: string,
+      etiquetas: string[],
+      motivo?: string
+    ): Promise<boolean> => {
       if (!estado) return false;
       setErrorGlobal(null);
       try {
@@ -290,7 +356,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
           accion: 'editar',
           nuevo_valor: { nombre: nuevoNombre, etiquetas },
           motivo,
-          usuario: 'Emprendedor',
+          usuario: usuario?.nombreCompleto || 'Emprendedor',
         });
         if (resp.exito) {
           setEstado((prev) => {
@@ -307,11 +373,11 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
           setErrorGlobal(resp.error);
         }
       } catch {
-        setErrorGlobal({ codigo: 'DOLOR_ERROR', mensaje: 'Error al editar el dolor.' });
+        setErrorGlobal({ codigo: 'DOLOR_ERROR', mensaje: 'Error al modificar el dolor.' });
       }
       return false;
     },
-    [estado]
+    [estado, usuario]
   );
 
   const decidirSugerencia = useCallback(
@@ -322,7 +388,7 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
         const resp = await service.decidirSugerencia({
           sugerencia_id: sugerenciaId,
           decision,
-          usuario: 'Emprendedor',
+          usuario: usuario?.nombreCompleto || 'Emprendedor',
         });
         if (resp.exito) {
           setEstado((prev) => {
@@ -341,31 +407,35 @@ export const EmprendimientoProvider: React.FC<{ children: React.ReactNode }> = (
           setErrorGlobal(resp.error);
         }
       } catch {
-        setErrorGlobal({ codigo: 'SUG_ERROR', mensaje: 'Error al procesar sugerencia.' });
+        setErrorGlobal({ codigo: 'SUGERENCIA_ERROR', mensaje: 'Error al registrar la decisión.' });
       }
       return false;
     },
-    [estado]
+    [estado, usuario]
   );
 
-  const value: EmprendimientoContextValue = {
-    estado,
-    mensajesChat,
-    cargando,
-    esperandoRespuestaChat,
-    errorGlobal,
-    limpiarError,
-    reintentar,
-    enviarMensaje,
-    omitirSolucion,
-    confirmarResumen,
-    agregarEtiqueta,
-    eliminarEtiqueta,
-    editarDolor,
-    decidirSugerencia,
-  };
-
-  return <EmprendimientoContext.Provider value={value}>{children}</EmprendimientoContext.Provider>;
+  return (
+    <EmprendimientoContext.Provider
+      value={{
+        estado,
+        mensajesChat,
+        cargando,
+        esperandoRespuestaChat,
+        errorGlobal,
+        limpiarError,
+        reintentar,
+        enviarMensaje,
+        omitirSolucion,
+        confirmarResumen,
+        agregarEtiqueta,
+        eliminarEtiqueta,
+        editarDolor,
+        decidirSugerencia,
+      }}
+    >
+      {children}
+    </EmprendimientoContext.Provider>
+  );
 };
 
 export const useEmprendimiento = () => {

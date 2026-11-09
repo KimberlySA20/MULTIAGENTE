@@ -1,16 +1,30 @@
 import React, { useState, useEffect } from 'react';
-import { EmprendimientoProvider, useEmprendimiento } from './context/EmprendimientoContext';
-import { StepperEtapas } from './components/StepperEtapas';
-import { BannerEstadoEmprendimiento } from './components/BannerEstadoEmprendimiento';
-import { ChatPanel } from './components/Chat/ChatPanel';
-import { TarjetaEtiquetas } from './components/PanelDiagnostico/TarjetaEtiquetas';
-import { TarjetaRanking } from './components/PanelDiagnostico/TarjetaRanking';
-import { TarjetaSugerencia } from './components/PanelDiagnostico/TarjetaSugerencia';
-import { ToastNotification } from './components/Common/ToastNotification';
-import { SkeletonCard } from './components/Common/SkeletonCard';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { Login } from './components/Auth/Login';
+import { RutaProtegida } from './components/Auth/RutaProtegida';
+import { VistaEmprendedor } from './pages/VistaEmprendedor';
+import { VistaMentor } from './pages/VistaMentor';
 
-const VistaEmprendedorContenido: React.FC = () => {
-  const { cargando, errorGlobal, limpiarError, reintentar } = useEmprendimiento();
+const RedireccionInicial: React.FC = () => {
+  const { usuario, cargando } = useAuth();
+
+  if (cargando) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] dark:bg-slate-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-3 border-teal-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (!usuario) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <Navigate to={usuario.rol === 'mentor' ? '/mentor' : '/diagnostico'} replace />;
+};
+
+export const App: React.FC = () => {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     const guardado = localStorage.getItem('theme');
     if (guardado) return guardado === 'dark';
@@ -30,58 +44,43 @@ const VistaEmprendedorContenido: React.FC = () => {
   const toggleDarkMode = () => setIsDarkMode((prev) => !prev);
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex flex-col font-sans transition-colors">
-      {/* Barra superior con Stepper */}
-      <StepperEtapas isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
+    <BrowserRouter>
+      <AuthProvider>
+        <Routes>
+          {/* Ruta Raíz con Redirección según Rol */}
+          <Route path="/" element={<RedireccionInicial />} />
 
-      {/* Banner contextual de estado */}
-      <BannerEstadoEmprendimiento />
+          {/* Login con Google */}
+          <Route
+            path="/login"
+            element={<Login isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />}
+          />
 
-      {/* Contenido principal: Grilla de 12 columnas (Chat 5 columnas, Panel 7 columnas) */}
-      <main className="flex-1 max-w-[1280px] w-full mx-auto px-4 sm:px-6 py-6">
-        {cargando ? (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-5">
-              <SkeletonCard rows={6} />
-            </div>
-            <div className="lg:col-span-7 space-y-6">
-              <SkeletonCard rows={2} />
-              <SkeletonCard rows={3} />
-              <SkeletonCard rows={2} />
-            </div>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Columna Izquierda: Chat (5 columnas en desktop) */}
-            <div className="lg:col-span-5 flex flex-col">
-              <ChatPanel />
-            </div>
+          {/* Vista del Emprendedor (Existente e intacta) */}
+          <Route
+            path="/diagnostico"
+            element={
+              <RutaProtegida rolEsperado="emprendedor">
+                <VistaEmprendedor isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
+              </RutaProtegida>
+            }
+          />
 
-            {/* Columna Derecha: Panel de Diagnóstico (7 columnas) */}
-            <div className="lg:col-span-7 space-y-6 flex flex-col">
-              <TarjetaEtiquetas />
-              <TarjetaRanking />
-              <TarjetaSugerencia />
-            </div>
-          </div>
-        )}
-      </main>
+          {/* Vista del Mentor (Nueva) */}
+          <Route
+            path="/mentor"
+            element={
+              <RutaProtegida rolEsperado="mentor">
+                <VistaMentor isDarkMode={isDarkMode} toggleDarkMode={toggleDarkMode} />
+              </RutaProtegida>
+            }
+          />
 
-      {/* Notificación no bloqueante de errores */}
-      <ToastNotification
-        error={errorGlobal}
-        onCerrar={limpiarError}
-        onReintentar={reintentar}
-      />
-    </div>
-  );
-};
-
-export const App: React.FC = () => {
-  return (
-    <EmprendimientoProvider>
-      <VistaEmprendedorContenido />
-    </EmprendimientoProvider>
+          {/* Comodín para URLs no encontradas */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </AuthProvider>
+    </BrowserRouter>
   );
 };
 

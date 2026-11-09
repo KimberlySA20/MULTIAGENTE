@@ -17,11 +17,21 @@ export const ModalEditarDolor: React.FC<ModalEditarDolorProps> = ({
   onGuardar,
   procesando,
 }) => {
+  const [nombre, setNombre] = useState(dolor?.nombre || '');
+  const [etiquetasStr, setEtiquetasStr] = useState(dolor?.etiquetas.join(', ') || '');
+  const [motivo, setMotivo] = useState('');
+
+  // Sincronizar estado cuando cambia el dolor
+  React.useEffect(() => {
+    if (dolor) {
+      setNombre(dolor.nombre);
+      setEtiquetasStr(dolor.etiquetas.join(', '));
+      setMotivo('');
+    }
+  }, [dolor]);
+
   if (!abierto || !dolor) return null;
 
-  const [nombre, setNombre] = useState(dolor.nombre);
-  const [etiquetasStr, setEtiquetasStr] = useState(dolor.etiquetas.join(', '));
-  const [motivo, setMotivo] = useState('');
   const mostrarCampoMotivo = dolor.estado === 'confirmado';
 
   const handleSubmit = async (e: React.FormEvent) => {

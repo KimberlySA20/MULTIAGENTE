@@ -238,15 +238,20 @@ export class HttpEmprendimientoService implements IEmprendimientoService {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), CONFIG.WEBHOOK_TIMEOUT_MS);
+    const idNum = parseInt(String(emprendimientoId), 10);
+    const empIdFinal = !isNaN(idNum) ? idNum : emprendimientoId;
+
     try {
       const response = await fetch(webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // El webhook de Visione Flow valida el campo "message" (en inglés)
+        // Enviamos el identificador de sesión en el body donde no dispara restricciones de CORS
         body: JSON.stringify({
           message: mensaje,
-          emprendimiento_id: emprendimientoId,
-          session_id: emprendimientoId,
+          sessionId: String(emprendimientoId),
+          session_id: String(emprendimientoId),
+          chatId: String(emprendimientoId),
+          emprendimiento_id: empIdFinal,
         }),
         signal: controller.signal,
       });
